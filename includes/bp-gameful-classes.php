@@ -327,7 +327,7 @@ class RuleSet {
 class GF_Level_Engine {
 
 
-    public $max_level = 8;
+    public $max_level = 7;
     public $level_rulesets = array();
     private $user_id;
 
