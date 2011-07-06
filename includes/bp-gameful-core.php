@@ -274,10 +274,10 @@ function gf_log($type, $uid, $points, $source, $unique=false){
 	global $wpdb;
         if ($unique)
         {
-            $occurences=$wpdb->get_var ("SELECT count(*) FROM ".CPDB." WHERE uid = " .$uid." AND type='".$type."' AND source=".$source.";");
+            $occurences=$wpdb->get_var ("SELECT count(*) FROM ".CP_DB." WHERE uid = " .$uid." AND type='".$type."' AND source=".$source.";");
             if ($occurences>0) return true;
         }
-        $wpdb->query("INSERT INTO `".CPDB."` (`id`, `uid`, `type`, `source`, `points`, `timestamp`)
+        $wpdb->query("INSERT INTO `".CP_DB."` (`id`, `uid`, `type`, `source`, `points`, `timestamp`)
 				  VALUES (NULL, '".$uid."', '".$type."', '".$source."', '".$points."', ".time().");");
 	return true;
 

@@ -34,7 +34,7 @@ class PointsRule extends RuleBase {
 
     public function evaluate($user_id, $from_time) {
         global $wpdb,$bp;
-        $points = $wpdb->get_var('SELECT sum(points) FROM `'.CPDB.'` WHERE uid = '.$user_id.' AND type=\'' . $this->action . '\' AND timestamp >=' . $from_time);
+        $points = $wpdb->get_var('SELECT sum(points) FROM `'.CP_DB.'` WHERE uid = '.$user_id.' AND type=\'' . $this->action . '\' AND timestamp >=' . $from_time);
         return $points >= $this->min_val && $points <= $this->max_val;
     }
 }
@@ -54,10 +54,12 @@ class ActionsRule extends RuleBase {
 
     public function evaluate($user_id, $from_time) {
         global $wpdb,$bp;
-        if ($this->action == 'Avatar Uploaded')
-            $actions = $wpdb->get_var('SELECT count(*) FROM `'.CPDB.'` WHERE uid = '.$user_id.' AND type=\'' . $this->action . '\'');
-        else {
-            $actions = $wpdb->get_var('SELECT count(*) FROM `'.CPDB.'` WHERE uid = '.$user_id.' AND type=\'' . $this->action . '\' AND timestamp >=' . $from_time);            
+        if ($this->action == 'Avatar Uploaded' || 'cp_bp_avatar_uploaded' ) { 
+            $actions = $wpdb->get_var('SELECT count(*) FROM `'.CP_DB.'` WHERE uid = '.$user_id.' AND type=\'' . $this->action . '\'');
+			$sql = 'SELECT count(*) FROM `'.CP_DB.'` WHERE uid = '.$user_id.' AND type=\'' . $this->action . '\'';
+        } else {
+            $actions = $wpdb->get_var('SELECT count(*) FROM `'.CP_DB.'` WHERE uid = '.$user_id.' AND type=\'' . $this->action . '\' AND timestamp >=' . $from_time);            
+			$sql = 'SELECT count(*) FROM `'.CP_DB.'` WHERE uid = '.$user_id.' AND type=\'' . $this->action . '\' AND timestamp >=' . $from_time;
         }
         return $actions >= $this->min_val && $actions <= $this->max_val;
     }
@@ -75,7 +77,7 @@ class DonatedPointsToPersonRule extends RuleBase {
 	public function	evaluate($user_id, $from_time) { 
 		global $wpdb,$bp;
 		
-		$donated = $wpdb->get_var('SELECT count(*) from `'.CPDB.'` WHERE uid = '.$this->uid.' AND type=\'donate\' AND source = '.$user_id.' AND points > 0 AND timestamp > '.$from_time);
+		$donated = $wpdb->get_var('SELECT count(*) from `'.CP_DB.'` WHERE uid = '.$this->uid.' AND type=\'donate\' AND source = '.$user_id.' AND points > 0 AND timestamp > '.$from_time);
 		
 		if ($donated) { 
 			return 1;
@@ -249,7 +251,7 @@ class PostedStatusRule extends RuleBase {
 
     public function evaluate($user_id, $from_time) {
         global $wpdb,$bp;
-        $points = $wpdb->get_var('SELECT count(*) FROM `'.CPDB.'` WHERE uid = '.$user_id.' AND type=\'Comment\' AND source =\'BuddyPress\' AND timestamp >=' . $from_time);
+        $points = $wpdb->get_var('SELECT count(*) FROM `'.CP_DB.'` WHERE uid = '.$user_id.' AND type=\'Comment\' AND source =\'BuddyPress\' AND timestamp >=' . $from_time);
         return $points >= $this->min && $points <= $this->max;
     }
 }
@@ -268,7 +270,7 @@ class DailyLoginsRule extends RuleBase {
 
     public function evaluate($user_id, $from_time) {
         global $wpdb,$bp;
-        $logins = $wpdb->get_var('SELECT count(*) FROM `'.CPDB.'` WHERE uid = '.$user_id.' AND type=\'login\' AND timestamp >=' . $from_time);
+        $logins = $wpdb->get_var('SELECT count(*) FROM `'.CP_DB.'` WHERE uid = '.$user_id.' AND type=\'dailypoints\' AND timestamp >=' . $from_time);
         return $logins >= $this->logins;
     }
 }
@@ -288,7 +290,8 @@ class DonatedPointsRule extends RuleBase {
 
     public function evaluate($user_id, $from_time) {
         global $wpdb,$bp;
-        $donations = $wpdb->get_row ('SELECT count(distinct uid) users_donated, sum(points) points_donated FROM `'.CPDB.'`WHERE source = ' .$user_id. ' and type=\'donate\' and points > 0  AND timestamp >=' . $from_time);
+		$donations = $wpdb->get_row('SELECT count(distinct uid) users_donated, sum(points) points_donated FROM `'.CP_DB.'` WHERE data = ' .$user_id. ' and type=\'donate\' and points > 0  AND timestamp >=' . $from_time);
+		
         return $donations->users_donated >= $this->to_individuals
                 && $donations->points_donated >= $this->min && $donations->points_donated <= $this->max;
 
@@ -331,6 +334,20 @@ class GF_Level_Engine {
 
 
     function __construct($user_id) {
+			/**
+			 * A list of Cubepoints action names because they seem fond of changing them up. fffffuuuu
+			 *
+			 */
+			$update = "cp_bp_update";
+			$friend_added = "cp_bp_new_friend";
+			$msg_sent = "cp_bp_message_sent";
+			$registration = "register";
+			$reply = "cp_bp_reply";
+			$group_join = "cp_bp_group_joined";
+			$forum_post = "cp_bp_new_group_forum_post";
+			$avatar_upload = "cp_bp_avatar_uploaded";
+	
+	
 			$this->user_id = $user_id;
 
 			$this->level_rulesets = array(1=>new RuleSet(), 2=>new RuleSet(), 3=>new RuleSet(), 4=>new RuleSet(), 5=>new RuleSet(), 6=>new RuleSet(), 7=>new RuleSet(), 8=>new RuleSet());
@@ -339,45 +356,41 @@ class GF_Level_Engine {
 			//Complete all required files
 			$this->level_rulesets[1]->rules[1] = new ProfileCompleteRule(true,'Sign up!');
 			//Post status update
-			$this->level_rulesets[1]->rules[2] = new  ActionsRule('Comment', 'Post status update<span class="small">Head to the activity page and say hello to your fellow monsters.</span>', 1,999999);
+			$this->level_rulesets[1]->rules[2] = new  ActionsRule($update, 'Post status update<span class="small">Head to the activity page and say hello to your fellow monsters.</span>', 1,999999);
 			
 
 			//Level 3 ruleset
-			$this->level_rulesets[2]->rules[1] = new ActionsRule('Group joined', 'Join the Make Gameful Better group<span class="small">We need your help! Make your way to the Groups page and join up!</span>', 1,999999);
-			$this->level_rulesets[2]->rules[2] = new ActionsRule('Group Forum Post', 'Leave a reply to a group forum topic<span class="small">Find a group and join the conversation in its forum.</small>', 1,999999);
+			$this->level_rulesets[2]->rules[1] = new ActionsRule($group_join, 'Join the Make Gameful Better group<span class="small">We need your help! Make your way to the Groups page and join up!</span>', 1,999999);
+			$this->level_rulesets[2]->rules[2] = new ActionsRule($forum_post, 'Leave a reply to a group forum topic<span class="small">Find a group and join the conversation in its forum.</small>', 1,999999);
 			$this->level_rulesets[2]->rules[3] = new ProfileHalfCompleteRule(true, 'Complete at least half of your profile page!<span class="small">Head over to My Profile and hit Edit Profile to tell the world about your Gameful self!</span>');
 			
 
 			//Level 4 ruleset
 			$this->level_rulesets[3]->rules[1] = new DonatedPointsRule(1,999999,1);
-			$this->level_rulesets[3]->rules[2] = new ActionsRule('Avatar Uploaded', 'Upload profile picture<span class="small">What do you look like? We are all wondering!</span>', 1,999999);
-			$this->level_rulesets[3]->rules[3] = new ActionsRule('Group joined', 'Join another group<span class="small">Join any group. Monster\'s choice.</span>', 1,999999);
+			$this->level_rulesets[3]->rules[2] = new ActionsRule($avatar_upload, 'Upload profile picture<span class="small">What do you look like? We are all wondering!</span>', 1,999999);
+			$this->level_rulesets[3]->rules[3] = new ActionsRule($group_join, 'Join another group<span class="small">Join any group. Monster\'s choice.</span>', 1,999999);
 
 
 			//Level 5 ruleset       
 			$this->level_rulesets[4]->rules[1] = new DonatedPointsRule(100,999999,3);
-			$this->level_rulesets[4]->rules[2] = new ActionsRule('Comment', 'Comment on a post<span class="small">Find a post you like on Blogs, and add your voice to the conversation.</span>', 1,999999);
-			$this->level_rulesets[4]->rules[3] = new ActionsRule ("Friend Added", "Friend 1 more person<span class='small'>Use the member search on the right of the members page to find 1 person with similar interests and friend them.</span>",1, 999999);
+			$this->level_rulesets[4]->rules[2] = new ActionsRule($update, 'Comment on a post<span class="small">Find a post you like on Blogs, and add your voice to the conversation.</span>', 1,999999);
+			$this->level_rulesets[4]->rules[3] = new ActionsRule ($friend_added, "Friend 1 more person<span class='small'>Use the member search on the right of the members page to find 1 person with similar interests and friend them.</span>",1, 999999);
 			$this->level_rulesets[4]->rules[4] = new DailyLoginsRule(1);
 
 			//Level 6 ruleset       
 			$this->level_rulesets[5]->rules[1] = new DonatedPointsRule(100,999999,3);
-			$this->level_rulesets[5]->rules[2] = new ActionsRule ("Friend Added", "Friend 1 more person<span class='small'>Use the member search on the right of the members page to find 1 person with similar interests and friend them.</span>",1, 999999);
+			$this->level_rulesets[5]->rules[2] = new ActionsRule ($friend_added, "Friend 1 more person<span class='small'>Use the member search on the right of the members page to find 1 person with similar interests and friend them.</span>",1, 999999);
 			$this->level_rulesets[5]->rules[3] = new ActionsRule ('profile view','View 3 random profiles<span class="small">Serendipity rules! Click Visit &gt; Random Member in the top menu.</span>',3,999999);
 
 			//Level 7 ruleset       
 			$this->level_rulesets[6]->rules[1] = new DailyLoginsRule(1);
-			$this->level_rulesets[6]->rules[2] = new ActionsRule('Comment', 'Post status update<span class="small">Head to the activity page and say hello to your fellow monsters.</span>', 1,999999);
+			$this->level_rulesets[6]->rules[2] = new ActionsRule($update, 'Post status update<span class="small">Head to the activity page and say hello to your fellow monsters.</span>', 1,999999);
 			
 			
 			$this->level_rulesets[7]->rules[1] = new DailyLoginsRule(1);
 			$this->level_rulesets[7]->rules[2] = new ActionsRule('Read blogging rules', 'Read the blogging rules<span class="small">Read the <a href="/blog-terms/">do&#146;s and do not&#146;s of blogging</a> on this block.</span>', 1,999999);
 			$this->level_rulesets[7]->rules[3] = new ActionsRule('Read blogging tips', 'Read the blogging tips<span class="small">Read the <a href="/blogging-tips/">blogging tips</a> article to help get you comfortable with blogging.</span>', 1,999999);
-			$this->level_rulesets[7]->rules[4] = new ProfileTotallyCompleteRule(true, 'Complete your profile page!<span class="small">Head over to My Profile and hit Edit Profile to tell the world more about your Gameful self! You can leave up to two fields blank.</span>');
-			
-			$this->level_rulesets[8]->rules[1] = new DonatedPointsToPersonRule(3, 'Donate to a very special Gameful monster<span class="small">Donate treats to Fiero-Monster before he rolls over to 100,000 treats!</span>', strtotime('yesterday'));
-			
-
+			$this->level_rulesets[7]->rules[4] = new ProfileTotallyCompleteRule(true, 'Complete your profile page!<span class="small">Head over to My Profile and hit Edit Profile to tell the world more about your Gameful self! You can leave up to two fields blank.</span>');			
 
     }
 
