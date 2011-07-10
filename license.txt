@@ -1,2 +1,2 @@
-Copyright 2011 Natron Baxtor
+Copyright 2011 Natron Baxter {@link http://natronbaxter.com/}
 All Rights Reserved

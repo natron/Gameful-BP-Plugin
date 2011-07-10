@@ -266,33 +266,7 @@ function bp_gameful_format_notifications( $action, $item_id, $secondary_item_id,
  *		easy to extend your component without hacking it to pieces.
  */
 
-
-function gf_log($type, $uid, $points, $source, $unique=false){
-	$userinfo = get_userdata($uid);
-	if($userinfo->user_login==''){ return false; }
-
-	global $wpdb;
-        if ($unique)
-        {
-            $occurences=$wpdb->get_var ("SELECT count(*) FROM ".CP_DB." WHERE uid = " .$uid." AND type='".$type."' AND source=".$source.";");
-            if ($occurences>0) return true;
-        }
-        $wpdb->query("INSERT INTO `".CP_DB."` (`id`, `uid`, `type`, `source`, `points`, `timestamp`)
-				  VALUES (NULL, '".$uid."', '".$type."', '".$source."', '".$points."', ".time().");");
-	return true;
-
-}
-
-function gf_view_profile ()
-{
-    global $current_user, $wpdb, $bp;
-    if ($bp->loggedin_user->id == $bp->displayed_user->id)
-        return;
-    $result = gf_log ('profile view', $bp->loggedin_user->id , 0, $bp->displayed_user->id, true);
-
-}
-
-add_action ('bp_after_profile_loop_content', 'gf_view_profile');
+/* gf_log() removed because the cp_log() function does just as well. */
 
 function bp_gameful_get_streak_data ($user_id)
 {
@@ -336,53 +310,75 @@ function bp_gameful_login_streak ($user_name)
 
 add_action( 'wp_login', 'bp_gameful_login_streak' );
 
-/*
-function bp_gameful_get_treats_earned ($user_id)
-{
-    //Treats earned are total treats minus treats received
-    global $wpdb;
 
-    $sql = "select ifnull(sum(points),0) given from wp_cubepoints where  wp_cubepoints.uid = ".$user_id;
-    $treats = $wpdb->get_var($sql);
-    if ($treats == 0)
-        return $treats;
-    else
-        return $treats - bp_gameful_get_treats_received ($user_id);
+/* So what's all this $treats_old $treats_new business? Simply put, CubePoints didn't migrate the database when it upgraded so we have to query the old (now static) treats database from pre-upgrade as well as the new active one. Yikes. @Nathaniel*/
 
-}
-*/
-
-function bp_gameful_get_treats_earned ($user_id)
+/**
+ * Total treats earned, regardless of source.
+ *
+ * @param string $user_id 
+ * @return void
+ */
+function bp_gameful_get_treats_earned($user_id) 
 {
     global $wpdb;
 
     $sql = "select ifnull(sum(points),0) earned from wp_cubepoints where points >= 0 and wp_cubepoints.uid = ".$user_id;
-    $treats = $wpdb->get_var($sql);
-    return $treats;
+    $treats_old = $wpdb->get_var($sql);
+    $sql = "select ifnull(sum(points),0) earned from wp_cp where points >= 0 and wp_cp.uid = ".$user_id;
+    $treats_new = $wpdb->get_var($sql);
+    return $treats_old + $treats_new;
 
 }
 
-function bp_gameful_get_treats_received ($user_id)
+/**
+ * Total treats recieved from pure donations.
+ *
+ * @param string $user_id 
+ * @return void
+ */
+function bp_gameful_get_treats_received($user_id)
 {
     global $wpdb;
 
     $sql = "select ifnull(sum(points),0) given from wp_cubepoints where type = 'donate' and points >= 0 and wp_cubepoints.uid = ".$user_id;
-    $treats = $wpdb->get_var($sql);
-    return $treats;
+    $treats_old = $wpdb->get_var($sql);
+    $sql = "select ifnull(sum(points),0) given from wp_cp where type = 'donate' and points >= 0 and wp_cp.uid = ".$user_id;
+    $treats_new = $wpdb->get_var($sql);
+    return $treats_old + $treats_new;
 
 }
 
-function bp_gameful_get_treats_given ($user_id)
+/**
+ * Gets treats given by a certain UID.
+ *
+ * @param string $user_id 
+ * @return void
+ */
+function bp_gameful_get_treats_given($user_id)
 {
     global $wpdb;
 
     $sql = "select ifnull(sum(points),0) given from wp_cubepoints where type = 'donate' and points >= 0 and wp_cubepoints.source = ".$user_id;
-    $treats = $wpdb->get_var($sql);
-    return $treats;
+    $treats_old = $wpdb->get_var($sql);
+	
+	// the new DB schema represents giving two ways: as a negative addition tagged with the donator's UID and the recipient's UID in the data column
+	// and as a positive donation tagged with recipient's UID and the donator's UID in the data column. we're querying the first.
+	$sql = "select ifnull(sum(points),0) given from wp_cp where type = 'donate' and points <= 0 and wp_cp.uid = ".$user_id; 
+    $treats_new = $wpdb->get_var($sql); 
+	$treats_new = -$treats_new; // negate the negative returned value
+	
+	return $treats_old + $treats_new;
 
 }
 
-function bp_gameful_index ($user_id)
+/**
+ * Generates the Gameful index by diving treats by total treats earned.
+ *
+ * @param string $user_id 
+ * @return void
+ */
+function bp_gameful_index($user_id)
 {
     if (bp_gameful_get_treats_earned($user_id) == 0)
         return 0.0;
@@ -410,43 +406,6 @@ add_action( 'wpmu_delete_user', 'bp_gameful_remove_data', 1 );
 add_action( 'delete_user', 'bp_gameful_remove_data', 1 );
 
 
-
-/***
- * Object Caching Support ----
- *
- * It's a good idea to implement object caching support in your component if it is fairly database
- * intensive. This is not a requirement, but it will help ensure your component works better under
- * high load environments.
- *
- * In parts of this example component you will see calls to wp_cache_get() often in template tags
- * or custom loops where database access is common. This is where cached data is being fetched instead
- * of querying the database.
- *
- * However, you will need to make sure the cache is cleared and updated when something changes. For example,
- * the groups component caches groups details (such as description, name, news, number of members etc).
- * But when those details are updated by a group admin, we need to clear the group's cache so the new
- * details are shown when users view the group or find it in search results.
- *
- * We know that there is a do_action() call when the group details are updated called 'groups_settings_updated'
- * and the group_id is passed in that action. We need to create a function that will clear the cache for the
- * group, and then add an action that calls that function when the 'groups_settings_updated' is fired.
- *
- * Example:
- *
- *   function groups_clear_group_object_cache( $group_id ) {
- *	     wp_cache_delete( 'groups_group_' . $group_id );
- *	 }
- *	 add_action( 'groups_settings_updated', 'groups_clear_group_object_cache' );
- *
- * The "'groups_group_' . $group_id" part refers to the unique identifier you gave the cached object in the
- * wp_cache_set() call in your code.
- *
- * If this has completely confused you, check the function documentation here:
- * http://codex.wordpress.org/Function_Reference/WP_Cache
- *
- * If you're still confused, check how it works in other BuddyPress components, or just don't use it,
- * but you should try to if you can (it makes a big difference). :)
- */
 
 add_action('parse_request', 'bp_gameful_check_rules');
 function bp_gameful_check_rules(){
